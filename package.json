@@ -1,18 +1,20 @@
 {
   "name": "@minamorl/colimit",
-  "version": "0.1.0",
-  "description": "Categorical merger library based on left Kan extensions. Replace ad-hoc Set/Map merge logic with colimit-based equivalence-class folding.",
+  "version": "0.2.0",
+  "description": "Typed groupBy-fold with semilattice merge. Replace ad-hoc Set/Map dedup with composable mergers (G-Set, LWW, max, PN-Counter).",
   "keywords": [
-    "kan-extension",
-    "colimit",
-    "category-theory",
-    "crdt",
+    "groupby",
     "merge",
-    "deduplication",
-    "data-integration",
+    "dedup",
+    "crdt",
+    "semilattice",
+    "lww",
+    "g-set",
+    "pn-counter",
+    "fold",
     "typescript",
-    "presheaf",
-    "semilattice"
+    "category-theory",
+    "kan-extension"
   ],
   "homepage": "https://github.com/minamorl/colimit",
   "repository": {

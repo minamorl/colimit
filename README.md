@@ -1,135 +1,156 @@
 # @minamorl/colimit
 
-A categorical merger library based on left Kan extensions. Replace ad-hoc
-`Set`/`Map` merge logic with **colimit-based equivalence-class folding**.
-
-```ts
-import { kanColimitWeighted } from '@minamorl/colimit';
-
-const merged = kanColimitWeighted(
-  [{ id: 'a', content: 'hello', importance: 5 }],
-  [{ id: 'b', content: 'hello', importance: 10 }],
-);
-// → [{ id: 'b', content: 'hello', importance: 10 }]
-//   same equivalence class collapsed; max-importance wins.
-```
-
-## Why
-
-You write code like this every week:
-
-```ts
-const merged = [...existing, ...incoming].reduce((acc, item) => {
-  const found = acc.find((x) => key(x) === key(item));
-  if (found) {
-    found.score = Math.max(found.score, item.score);
-  } else {
-    acc.push(item);
-  }
-  return acc;
-}, [] as Item[]);
-```
-
-That's a **left Kan extension**. You classify by an equivalence relation,
-then collapse collisions with a monotone operator. The mathematical name is
-`(Lan_F G)(m) = colim((F ↓ m) → I → C)`; in practice it's "group by, then fold".
-
-This library extracts the pattern. You provide:
-
-- an **equivalence relation** (key, similarity threshold, …), and
-- a **collapse operator** (union, max, latest-wins, weighted average, …).
-
-The library handles the rest, with names that make the structure visible
-when you come back to the code six months later.
-
-## Install
+Typed `groupBy` + `fold` with semilattice merge.
 
 ```bash
 pnpm add @minamorl/colimit
-# or
-npm i @minamorl/colimit
 ```
 
-ESM-only. Requires TypeScript 5+ (uses `Bundler` module resolution).
+## The pitch
 
-## API
+You write this constantly:
 
-### Core
+```ts
+const out = new Map<string, User>();
+for (const u of users) {
+  const prev = out.get(u.email);
+  out.set(u.email, prev ? { ...prev, score: Math.max(prev.score, u.score) } : u);
+}
+return [...out.values()];
+```
 
-- **`kanExtend(opts)`** — the general left Kan extension. Take the comma slice
-  `(F ↓ m)`, lift it through `G`, fold with `colimitOp`. The five other helpers
-  below are just specializations.
+It's `groupBy` + `mergeWith`, but lodash's `mergeWith` doesn't compose, doesn't
+type cleanly, and silently breaks when your merger isn't associative.
 
-### Discrete / total-order colimits (CRDT semantics)
+`colimit` is the same operation made explicit:
 
-- **`kanMergeStrings(base, incoming)`** — G-Set CRDT. Trim-normalized equivalence;
-  union as the colimit.
-- **`kanMergeHistory(base, incoming)`** — LWW-Register CRDT keyed by
-  `${table}:${action}:${appliedAt}`. Latest content wins; sorted by timestamp.
-- **`kanColimitWeighted(base, incoming)`** — weighted colimit on a discrete
-  category. Same content → take `Math.max` of `importance`. Returns descending
-  by importance.
+```ts
+import { colimit, maxBy } from "@minamorl/colimit";
 
-### Tolerance colimits (non-transitive "near enough")
+const out = colimit({
+  items: users,
+  by: (u) => u.email,
+  merge: maxBy((u) => u.score),
+});
+```
 
-When the equivalence relation is approximate (cosine similarity ≥ θ, etc.),
-no true quotient exists, but we can compute a deterministic finite approximation:
+That's it. One pass. Typed. First-seen order preserved. The `merge` argument is
+just a binary function — pick one of the built-ins or write your own.
 
-- **`kanToleranceColimit(opts)`** — given precomputed `SimilarityPair`s,
-  greedily fold by descending similarity. Keeps the higher `importance` side.
-- **`kanDeduplicateByTolerance(opts)`** — O(n²) pairwise pass; convenient when
-  the input batch is small.
-- **`kanDeduplicateByPairs(opts)`** — same shape, but the candidate pair set is
-  precomputed externally (typical with an ANN index over embeddings).
+## Two core functions
 
-### Similarity primitives
+### `colimit({ items, by, merge })`
 
-- **`cosineSimilarity(a, b)`** — symmetric, returns `0` for empty / mismatched /
-  zero vectors.
-- **`contentSimilarity(a, b)`** — lightweight string similarity with no
-  embedding model. Normalization → exact match (`1.0`) → containment (`0.95`) →
-  Jaccard over character 3-grams.
-- **`buildHybridSimilarity(opts)`** — picks cosine when both records carry a
-  usable embedding, falls back to content similarity otherwise. Threshold
-  semantics differ between the two paths, so `cosineThreshold` and
-  `contentThreshold` are independent.
+Fold items by an equivalence key.
 
-## Where to use it
+```ts
+import { colimit, lww, mergeFields, gset } from "@minamorl/colimit";
 
-- **ETL / record reconciliation** — `kanColimitWeighted` over normalized
-  business keys.
-- **Event-sourced state folding** — `kanMergeHistory` for keyed last-writer-wins
-  semantics.
-- **Cache layer merges** — `kanExtend` with a custom `colimitOp` that combines
-  `fetchedAt` (max), `hitCount` (sum), `value` (latest).
-- **Near-duplicate detection** — `kanDeduplicateByTolerance` against
-  `cosineSimilarity` or `contentSimilarity`.
-- **CRDT-style replicated structures** — `kanMergeStrings` is literally G-Set;
-  `kanMergeHistory` is literally LWW-Register. Both are commutative,
-  associative, idempotent (join-semilattice merges).
+// Deduplicate events, keeping the latest by timestamp.
+colimit({
+  items: events,
+  by: (e) => e.id,
+  merge: lww((e) => e.ts),
+});
 
-## Mathematical notes
+// Per-field merge policies.
+colimit({
+  items: users,
+  by: (u) => u.id,
+  merge: mergeFields<User>({
+    score: (a, b) => Math.max(a, b),
+    tags:  (a, b) => [...new Set([...a, ...b])],
+    updatedAt: (a, b) => Math.max(a, b),
+  }),
+});
+```
 
-If you prefer the formal version:
+### `tolerance({ items, similar, merge })`
 
-- `kanExtend` is the pointwise formula for `Lan_F G: M → C`, with `(F ↓ m)`
-  approximated by `CommaSlice<I>`.
-- Discrete-category cases (`kanMergeStrings`, `kanMergeHistory`,
-  `kanColimitWeighted`) collapse to set-like or map-like colimits.
-- Tolerance colimits implement the **chase**-style greedy fold against a
-  precomputed similarity relation; the quotient map's idempotency is preserved
-  by the absorbed-set bookkeeping.
+Same idea, but the equivalence is given by a pairwise predicate (which may not
+be transitive). Connected components of the similarity graph collapse together.
 
-For background reading:
+```ts
+import { tolerance, sim } from "@minamorl/colimit";
 
-- Mac Lane, *Categories for the Working Mathematician*, ch. X (Kan extensions).
-- Shiebler, *Kan Extensions in Data Science and Machine Learning*,
-  [arXiv:2203.09018](https://arxiv.org/abs/2203.09018).
-- Spivak, Wisnesky, *Categorical Query Language* (functorial data migration
-  as Σ / Δ / Π adjunctions).
-- Shapiro et al., *Conflict-free Replicated Data Types* (INRIA RR-7687) for the
-  CRDT correspondence.
+// Near-duplicate clustering by embedding cosine similarity.
+const clusters = tolerance({
+  items: documents,
+  similar: (a, b) => sim.cosine(a.embedding, b.embedding) >= 0.85,
+  merge: (a, b) => a.score > b.score ? a : b,
+});
+```
+
+`tolerance` is O(n²) in the number of items; use it for near-duplicate dedup
+after a cheaper `colimit` blocking step, or for small batches (n ≲ 10k).
+
+## Built-in mergers
+
+All built-in mergers form a join-semilattice — they're associative,
+commutative, and idempotent — which means the result doesn't depend on input
+order and is safe to use as a CRDT merge function.
+
+| Merger          | Pattern                            | CRDT analogue   |
+|-----------------|------------------------------------|-----------------|
+| `gset(key?)`    | union by equivalence key           | G-Set           |
+| `lww(field)`    | larger timestamp/version wins      | LWW-Register    |
+| `maxBy(field)`  | larger numeric field wins          | (max-semilattice) |
+| `minBy(field)`  | smaller numeric field wins         | (min-semilattice) |
+| `pnCounter`     | elementwise max of `{p, n}` state  | PN-Counter      |
+| `mergeFields`   | combine per-field mergers          | (product of CRDTs) |
+
+Custom merger? Just write `(a, b) => T`. To stay semilattice-safe, make it
+associative, commutative, and idempotent.
+
+## Built-in similarities (`sim` namespace)
+
+For use with `tolerance({ similar, ... })`:
+
+- `sim.cosine(a, b)` — cosine similarity for `number[]` vectors
+- `sim.cosineAbove(threshold)` — predicate form
+- `sim.jaccard(a, b)` — Jaccard similarity of two iterables
+- `sim.jaccardWords(a, b)` — Jaccard over whitespace-tokenized strings
+- `sim.jaccardWordsAbove(threshold)` — predicate form
+- `sim.weighted([{ weight, score }, ...])` — weighted combination
+- `sim.above(threshold, scoreFn)` — turn any score into a predicate
+
+## Why a library
+
+The same pattern shows up everywhere:
+
+- ETL deduplication / row merging
+- Event-sourcing fold over the event stream
+- Cache-entry consolidation
+- GraphQL `DataLoader`-style request batching
+- `GROUP BY ... AGG` translated to in-memory code
+- Reducer `UPSERT` cases in Redux/Zustand
+- Near-duplicate document clustering
+
+Without a shared vocabulary you write a slightly different `reduce(..., new Map())`
+in each of them. `colimit` gives you one shape and forces the merger to be
+explicit — which is exactly where bugs hide.
+
+## Background (optional)
+
+Mathematically, `colimit` computes the colimit of the diagram
+`(F ↓ m) → I → C` in the discrete-category case (the left Kan extension when
+`merge` is associative-commutative-idempotent). Mergers satisfying those three
+laws form a join-semilattice, which is precisely the convergence condition for
+state-based CRDTs (Shapiro et al., 2011, _Conflict-free Replicated Data Types_).
+
+In other words: `colimit` is the in-process projection of CRDT merge onto a
+single machine. The same merger can be reused unchanged in a distributed
+setting where state replicas converge over the same semilattice.
+
+Related work:
+
+- ekmett/kan-extensions (Haskell) — theoretical-first
+- Yjs / Automerge — data-type-first CRDT libraries for collaborative editing
+- lodash `groupBy` + `mergeWith` — ad-hoc, untyped, no semilattice contract
+- Spivak, _Categorical Query Language_ (CQL) — functorial data migration via Σ/Δ/Π
+
+`colimit` sits in the lodash niche with the Yjs guarantees and the ekmett vocabulary.
 
 ## License
 
-MIT © minamorl
+MIT.

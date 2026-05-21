@@ -1,22 +1,53 @@
 # Changelog
 
-## 0.1.0 — 2026-05-21
+## 0.2.0 (2026-05-21)
 
-Initial release.
+### BREAKING CHANGES — full API redesign.
 
-### Added
+The v0.1 surface was theory-first and required users to construct comma slices
+and indexers by hand. v0.2 is a complete reset around a single mental model:
+typed `groupBy` + `fold` with a plug-replaceable merger.
 
-- `kanExtend` — generalized pointwise left Kan extension with pluggable
-  `colimitOp`.
-- `kanMergeStrings` — G-Set CRDT (trim-normalized union).
-- `kanMergeHistory` — LWW-Register CRDT keyed by `${table}:${action}:${appliedAt}`.
-- `kanColimitWeighted` — weighted colimit on a discrete category; collisions
-  fold by `Math.max(importance)`.
-- `kanToleranceColimit` — colimit under a tolerance relation, given precomputed
-  similarity pairs.
-- `kanDeduplicateByTolerance` — O(n²) deduplication driven by a user-supplied
-  similarity function.
-- `kanDeduplicateByPairs` — pair-driven deduplication for ANN-precomputed
-  candidate sets.
-- `cosineSimilarity`, `contentSimilarity`, `buildHybridSimilarity` —
-  similarity primitives intended to be plugged into the tolerance APIs.
+#### Removed
+
+- `kanExtend`, `kanMergeStrings`, `kanMergeHistory`, `kanColimitWeighted`
+- `kanToleranceColimit`, `kanDeduplicateByTolerance`, `kanDeduplicateByPairs`
+- top-level `cosineSimilarity`, `contentSimilarity`, `buildHybridSimilarity`
+
+#### Added
+
+Core (2):
+- `colimit({ items, by, merge })` — typed groupBy-fold
+- `tolerance({ items, similar, merge })` — colimit under non-transitive equivalence
+
+Mergers (6, all semilattice-safe):
+- `gset`, `lww`, `maxBy`, `minBy`, `pnCounter` (+ `pnCounterValue`), `mergeFields`
+
+Similarity (`sim` namespace, 7):
+- `sim.cosine`, `sim.cosineAbove`
+- `sim.jaccard`, `sim.jaccardWords`, `sim.jaccardWordsAbove`
+- `sim.weighted`, `sim.above`
+
+#### Migration
+
+```ts
+// v0.1
+import { kanMergeStrings, kanColimitWeighted } from "@minamorl/colimit";
+kanMergeStrings(existing, incoming);
+kanColimitWeighted(items, getKey, getImportance);
+
+// v0.2
+import { colimit, gset, maxBy } from "@minamorl/colimit";
+colimit({
+  items: [...existing, ...incoming],
+  by: (s) => s.trim(),
+  merge: (a, _b) => a,
+});
+colimit({ items, by: getKey, merge: maxBy(getImportance) });
+```
+
+## 0.1.0 (2026-05-21)
+
+Initial release. Theory-first API around `kanExtend` with helpers
+`kanMergeStrings`, `kanMergeHistory`, `kanColimitWeighted`,
+`kanToleranceColimit`, plus a similarity module. Superseded by 0.2.0.
