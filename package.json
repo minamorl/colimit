@@ -1,0 +1,58 @@
+{
+  "name": "@minamorl/colimit",
+  "version": "0.1.0",
+  "description": "Categorical merger library based on left Kan extensions. Replace ad-hoc Set/Map merge logic with colimit-based equivalence-class folding.",
+  "keywords": [
+    "kan-extension",
+    "colimit",
+    "category-theory",
+    "crdt",
+    "merge",
+    "deduplication",
+    "data-integration",
+    "typescript",
+    "presheaf",
+    "semilattice"
+  ],
+  "homepage": "https://github.com/minamorl/colimit",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/minamorl/colimit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/minamorl/colimit/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "pnpm run clean && tsc --build",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "test": "vitest run",
+    "dev": "vitest",
+    "lint": "eslint \"src/**/*.ts\""
+  },
+  "license": "MIT",
+  "packageManager": "pnpm@9.1.1",
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.7.0",
+    "@typescript-eslint/parser": "^8.7.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
